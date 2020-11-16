@@ -277,28 +277,7 @@ df3 %>% group_by(sex,replicate) %>%
 do(mod = lm(y14hidpt ~ y10age +  y10hidpt + time_log_excl , .)) %>% tidy(mod, conf.int = TRUE)
 ```
 
-### Hidpt1412
-```{r}
-df4<-df3%>%
-  filter(y12age >=12)
 
-# model 1-1
-df3 %>% group_by(sex) %>%
-do(mod = lm(y14hidpt ~ y12age + y12hidpt, .)) %>% tidy(mod, conf.int = TRUE)
-
-dfHour = df3 %>% group_by(sex) %>%
-  do(fitHour = lm(y14hidpt ~ y12age + y12hidpt, data = .))
-
-knitr::kable(tidy(dfHour,fitHour))
-
-# model 1-2
-df3 %>% group_by(sex) %>%
-do(mod = lm(y14hidpt ~ y12age +  y12hidpt + time_log_excl, .)) %>% tidy(mod, conf.int = FALSE)
-
-# model 1-3
-df3 %>% group_by(sex) %>%
-do(mod = lm(y14hidpt ~ y12age + y12hidpt + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = FALSE)
-=======
 ```{r}
 df3 %>% ggplot(aes(x=time_log_excl, y=y14hidpt, group=sex, color=sex)) + 
   geom_point(alpha=0.4) +
@@ -314,5 +293,4 @@ df3 %>% ggplot(aes(x=time_log_excl, y=hidpt1412, group=sex, color=sex)) +
   labs(x="Puberty timing", y="Hidden pattern at 14")+
   #theme with white background
   theme_classic() 
->>>>>>> da0ee75f9537e2313b37415107740a116fa491c2
 ```
