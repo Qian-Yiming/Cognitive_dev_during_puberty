@@ -1,0 +1,485 @@
+---
+title: "New_analysis_Oct22"
+author: "Yiming Qian"
+date: "10/23/2020"
+output: html_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Fig/',
+                      echo=TRUE, warning=FALSE, message=FALSE)
+# library(ggplot2)  #for plotting
+# library(MASS)     #for random generator function
+# library(psych)    #for general functions
+# library(nlme)      #for model fitting
+# library(reshape)   #for data management
+# library(plyr)
+library(tidyverse)
+# library(GGally)
+library(broom)
+```
+
+# design new functions
+```{r}
+# define a function to remove outliers
+FindOutliers <- function(data) {
+  sd = sd(data, na.rm=T)
+  mean = mean(data,na.rm=T)
+  # we identify extreme outliers
+  extreme.threshold.upper = (sd * 3) + mean
+  extreme.threshold.lower = -(sd * 3) + mean
+  result <- which(data > extreme.threshold.upper | data < extreme.threshold.lower)
+}
+
+# define a function to remove outliers
+FindOutliers_lower <- function(data) {
+  sd = sd(data, na.rm=T)
+  mean = mean(data,na.rm=T)
+  # we identify extreme outliers
+  extreme.threshold.upper = (sd * 3) + mean
+  extreme.threshold.lower = -(sd * 3) + mean
+  print(extreme.threshold.lower)
+  result <- which(data < extreme.threshold.lower)
+}
+```
+
+# load data
+### raw PDS scores
+```{r get-pds}
+raw_PDS <- read.csv("yiming3.csv", header=TRUE)
+```
+
+```{r}
+outliers_pds<-lapply(raw_PDS[,5:6], FindOutliers)  
+# temp<-append(outliers_pds[[2]],outliers_pds[[3]],outliers_pds[[4]])
+# PDS<- raw_PDS[-temp,]
+PDS<- raw_PDS[-outliers_pds[[2]],]
+
+outliers_pds2<-which(PDS$temp_log_excl<0.1)
+# outliers_pds3<-which(PDS$temp_line_excl<0.1)
+# PDS<- PDS[-outliers_pds3,]
+100-nrow(PDS)/nrow(raw_PDS)*100
+
+100-length(which(PDS$sex==1))/length(which(raw_PDS$sex==1))*100
+100-length(which(PDS$sex==0))/length(which(raw_PDS$sex==0))*100
+```
+
+### raw cognitive scores
+```{r get-cog}
+library(openxlsx)
+raw_cog1 <- read.xlsx("raw_cognitive.xlsx",sheet=1)
+# load standardized similarity and vocabulary test scores at age 9 and 10.
+raw_cog2 <- read.xlsx("yiming_stnd9_10.xlsx",sheet=1)
+raw_cog <- merge(raw_cog1,raw_cog2[,c("project","id","sex","vocab_stnd9","vocab_stnd10","simil_stnd9","simil_stnd10")],by=c("project","id","sex"))
+
+raw_cogi <- as.data.frame(apply(raw_cog[,-1], 2, as.numeric))
+raw_cogi$project<-factor(raw_cog$project)
+names(raw_cogi)[names(raw_cogi) == "y7vocb"] <- "y7vocab"
+varnames <- c("sex","id","y7agemon","y9agemon","y10agemon","y12agemon","y14agemon","y16agemon","y9hidpt","y10hidpt","y12hidpt","y14hidpt","y16hidpt", "y9crott", "y10crott",  "y12crott", "y14crott",  "y16crott","simil_stnd9","simil_stnd10","y12simil","y14simil","y7vocab","vocab_stnd9","vocab_stnd10","y12vocab","y14vocab")
+raw_cogni<-raw_cogi[ ,varnames]
+rm(raw_cog,raw_cogi,raw_cog1,raw_cog2)
+raw_cogni$sex[raw_cogni$sex==4.666667]<-NA
+names(raw_cogni)[names(raw_cogni) == "simil_stnd9"] <- "y9simil"
+names(raw_cogni)[names(raw_cogni) == "simil_stnd10"] <- "y10simil"
+names(raw_cogni)[names(raw_cogni) == "vocab_stnd9"] <- "y9vocab"
+names(raw_cogni)[names(raw_cogni) == "vocab_stnd10"] <- "y10vocab"
+```
+
+# merge data
+```{r}
+df = merge(x = PDS, # 1520 rows
+             y = raw_cogni, # 1873 rows
+                by.x = c('id','sex'), by.y = c('id','sex'),
+                all = TRUE)   # 1873 rows
+df$sex<-factor(df$sex, levels=c("0","1"),labels=c("Girls","Boys"))
+
+length(unique(df$id)) == nrow(df)
+which(duplicated(df$id))
+df$project[c(244,246)]<-"LTS"
+df<-df[-c(245,247),]
+
+df$nonna_count <- apply(df[,5:6], 1, function(x) sum(!is.na(x)))
+df <- df %>% filter(nonna_count>=1) #1415 obs
+```
+
+```{r}
+# null the y16agemon out of 226
+boxplot(df[,9:14])
+which(df$y16agemon>18*12)
+df$y16crott[which(df$y16agemon>18*12)]<-NA
+df$y16hidpt[which(df$y16agemon>18*12)]<-NA
+df$y16agemon[which(df$y16agemon>18*12)]<-NA
+
+which(df$y12agemon>14*12)
+df$y12crott[which(df$y12agemon>14*12)]<-NA
+df$y12hidpt[which(df$y12agemon>14*12)]<-NA
+df$y12agemon[which(df$y12agemon>14*12)]<-NA
+
+which(df$y14agemon>16*12)
+```
+
+```{r}
+# detect the outliers 
+temp2<-lapply(df[9:ncol(df)], FindOutliers_lower)
+
+df$y9crott[which(df$y9crott< -54)]
+df$y10crott[which(df$y10crott< -34)]
+df$y12crott[which(df$y12crott< -6.5)]<-NA
+df$y14crott[which(df$y14crott<16)]<-NA 
+df$y16crott[which(df$y16crott<22)]<-NA # 4 participants
+
+boxplot(df[,15:19])
+boxplot(df[,20:24])
+```
+
+### correction for cognition data by sex
+```{r}
+describe(df)
+df1 <- df %>% mutate(
+                        y9age=y9agemon/12,
+                        y10age=y10agemon/12,
+                        y12age=y12agemon/12,
+                        y14age=y14agemon/12,
+                        y16age=y16agemon/12,
+                        age109=y10age-y9age,
+                        age1210=y12age-y10age,
+                        age1412=y14age-y12age,
+                        age1614=y16age-y14age,
+                        age149=y14age-y9age,
+                        age169=y16age-y9age)  # 44 columns
+
+# Excluded the test scores which participants took less than one year apart.
+which(df1$age1614<0.99)
+df1$y16age[which(df1$age1614<0.99)]<-NA
+df1$y16hidpt[which(df1$age1614<0.99)]<-NA
+df1$y16crott[which(df1$age1614<0.99)]<-NA
+df1$age1614[which(df1$age1614<0.99)]<-NA
+
+which(df1$age1412<1)
+df1$y12age[which(df1$age1412<1)]<-NA
+df1$y12hidpt[which(df1$age1412<1)]
+df1$y12crott[which(df1$age1412<1)]
+df1$y12simil[which(df1$age1412<1)]<-NA
+df1$y12vocab[which(df1$age1412<1)]<-NA
+df1$age1412[which(df1$age1412<1)]<-NA
+
+df2<-df1
+for (i in 5:ncol(df1)) {
+ df2[,i]<-scale(df1[,i], center = TRUE, scale = FALSE)}
+
+df3 <- df2 %>% mutate(
+                        # hidpt109=y10hidpt-y9hidpt,
+                        # hidpt1210=y12hidpt-y10hidpt,                      
+                        # hidpt1412=y14hidpt-y12hidpt,
+                        # hidpt1614=y16hidpt-y14hidpt,
+                        # hidpt169=y16hidpt-y9hidpt,
+                        # crott109=y10crott-y9crott,
+                        # crott1210=y12crott-y10crott,
+                        # crott1412=y14crott-y12crott,
+                        # crott1614=y16crott-y14crott,
+                        # crott169=y16crott-y9crott,
+                        # simil109=y10simil-y9simil,
+                        # simil1210=y12simil-y10simil,
+                        # simil1412=y14simil-y12simil,
+                        # simil149=y14simil-y9simil,
+                        # vocab97=y9vocab-y7vocab,
+                        # vocab109=y10vocab-y9vocab,
+                        # vocab1210=y12vocab-y10vocab,
+                        # vocab1412=y14vocab-y12vocab,
+                        # vocab149=y14vocab-y9vocab,
+                        time_log_sq= time_log_excl^2,
+                        temp_log_sq= temp_log_excl^2)  # 44 columns
+
+boxplot(df3[,15:19])
+boxplot(df3[,20:24])
+
+cor(df3$time_log_excl,df3$time_log_sq) 
+ggplot(df3, aes(x=time_log_excl, y=time_log_sq)) + geom_point()
+
+hist(df3$time_log_excl)
+
+```
+
+```{r}
+options(digits=2)
+write.csv(df3,"colorado_dataset.csv", row.names = FALSE)
+```
+# analysis
+
+### Hidpt1412
+```{r}
+# model 1-1
+na.omit(df3) %>% group_by(sex,replicate) %>%
+do(mod = lm(y14hidpt ~ y12age + y12hidpt, .)) %>% tidy(mod, conf.int = TRUE)
+
+#dfHour = df2 %>% group_by(sex) %>%
+#  do(fitHour = lm(y14hidpt ~ y12age + y12hidpt, data = .))
+
+#tidy(dfHour,fitHour)
+
+# model 1-2
+df3 %>% group_by(sex,replicate) %>%
+do(mod = lm(y14hidpt ~ y12age +  y12hidpt + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 1-3
+df3 %>% group_by(sex,replicate) %>%
+do(mod = lm(y14hidpt ~ y12age + y12hidpt + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Crott1412
+```{r}
+# model 2-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14crott ~ y12age + y12crott, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14crott ~ y12age + y12crott + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14crott ~ y12age + y12crott + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Vocab1412
+```{r}
+# model 2-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14vocab ~ y12age + y12vocab, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14vocab ~ y12age + y12vocab + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14vocab ~ y12age + y12vocab + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Simil1412
+```{r}
+# model 2-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14simil ~ y12age + y12simil, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14simil  ~ y12age + y12simil  + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14simil  ~ y12age + y12simil + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Hidpt1614
+```{r}
+# model 2-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y16hidpt ~ y14age + y14hidpt, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y16hidpt ~ y14age +  y14hidpt + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y16hidpt ~ y14age + y14hidpt + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Crott1614
+```{r}
+# model 2-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y16crott ~ y14age + y14crott, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y16crott ~ y14age +  y14crott + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 2-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y16crott ~ y14age + y14crott + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Hidpt1210
+```{r}
+# model 3-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y12hidpt ~ y10age + y10hidpt, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 3-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y12hidpt ~ y10age + y10hidpt + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 3-3
+df3 %>% group_by(sex,replicate) %>%
+do(mod = lm(y12hidpt ~ y10age + y10hidpt + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Crott1210
+```{r}
+# model 3-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y12crott ~ y10age + y10crott, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 3-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y12crott ~ y10age +  y10crott + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 3-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y12crott ~ y10age + y10crott + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+### Hidpt1410
+```{r}
+# model 4-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14hidpt ~ y10age + y10hidpt, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 4-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14hidpt ~ y10age + y10hidpt + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 4-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14hidpt ~ y10age + y10hidpt + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### Crott1410
+```{r}
+# model 4-1
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14crott ~ y10age + y10crott, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 4-2
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14crott ~ y10age +  y10crott + time_log_excl, .)) %>% tidy(mod, conf.int = TRUE)
+
+# model 4-3
+df3 %>% group_by(sex) %>%
+do(mod = lm(y14crott ~ y10age + y10crott + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
+```
+
+### try unsupervised learning 
+Unsupervised Machine Learning: No label or ground truth data
+
+Pros: “If we are interested in discovering what types of labels best explain the data rather than imposing a pre-determined set of labels on the data, then we must use unsupervised rather than supervised learning.”Libbrecht & Noble, 2015, pag 4
+
+Cons:“No supervisor telling you if you are doing right or not”.Also some algorithms require us to provide some input parameter a priori.
+```{r}
+# scale the variables, and remove the NA
+var<-c(2:6,9:33)
+df4<-df3[,var]
+for (i in 4:ncol(df4)) {
+ df4[,i]<-scale(df4[,i], center = TRUE, scale = TRUE)}
+ApplyQuintiles <- function(x) {cut(x, breaks=c(quantile(x,  probs = seq(0,1, by=0.25), 
+                          na.rm=TRUE, names=TRUE, include.lowest=TRUE, right = TRUE, 
+                          labels=c("1","2","3","4"))))} # makes quintiles 
+df4$y14hidpt_q<-ApplyQuintiles(df$y14hidpt)
+df4$y16hidpt_q<-ApplyQuintiles(df$y16hidpt)
+df_f<-df4 %>% filter(sex=="Girls") 
+df_m<-df4 %>% filter(sex=="Boys")
+
+library("rgl")
+library("knitr")  
+
+knit_hooks$set(webgl = hook_webgl)
+
+mfrow3d(nr = 1, nc = 2, sharedMouse =F)  
+plot3d((df_m[,c(5,15,16)]), type = "s",radius=0.1, main="Hepta Dataset") 
+plot3d((df_f[,c(5,15,16)]), type = "s",radius=0.1, main="Hepta Dataset") 
+```
+
+1. Dissimilarity/Similarity matrix
+There are several metric to evaluate the similarity between object. The selection will be driven by the type/scale of data (e.g., ratio, interval, ordinal, binary, categorical)see Clifford et al. (2011)
+```{r}
+#euclidean
+males_euclidian <- dist(df_m[,-1], method = "euclidean")
+females_euclidian <- dist(df_f[,-1], method = "euclidean")
+
+#manhattan
+males_manhattan<- dist(df_m[,-1], method = "manhattan")
+females_manhattan<- dist(df_f[,-1], method = "manhattan")
+
+heatmap(as.matrix(males_euclidian), Rowv = NA, Colv=NA)
+heatmap(as.matrix(females_euclidian), Rowv = NA, Colv=NA)
+```
+What is we dont know the how many clusters are in the dataset (i.e., k?)
+The Factoextra Package can help.
+
+```{r}
+#factoextra PACKAGE
+if (!require("factoextra")) install.packages("factoextra", dependencies=T)
+library("factoextra") #Load the Package
+
+#Need to define function
+single_HC<-function(x,k){hcut(x,k, hc_method ="single" , hc_metric="euclidian")}
+
+#Hepta
+fviz_nbclust(as.matrix(df_m), single_HC, method = "silhouette")
+fviz_nbclust(as.matrix(df_f), single_HC, method = "silhouette")
+```
+To Plot more than 4D we can use PCA and the Factoextra Package.
+This package provides tools to visualize the results of clustering algorithms and multivariate analysis. Be aware that PCA with ordinal or categorical data is not meaningful.
+
+```{r}
+library("factoextra") #Load the Package
+
+#With Single
+complete_HCcluster_iris <- hcut(na.omit(df_m[,-1]),3,hc_method ="single" , hc_metric="euclidian")
+
+fviz_cluster(complete_HCcluster_iris, data = na.omit(df_m[,-1]))
+```
+
+Random forest
+```{r}
+library(randomForest)
+set.seed(1)
+df_m1<-na.omit(df_m[,c(1:15,32)])
+
+train <- sample(nrow(df_m1), 0.7*nrow(df_m1), replace = FALSE)
+TrainSet <- df_m1[train,]
+ValidSet <- df_m1[-train,]
+#summary(TrainSet)
+#summary(ValidSet)
+
+# Create a Random Forest model with default parameters
+model1 <- randomForest(y16hidpt_q  ~ ., data = TrainSet, importance = TRUE)
+model1
+
+# Fine tuning parameters of Random Forest model
+model2 <- randomForest(y16hidpt_q ~ ., data = TrainSet, ntree = 500, mtry = 6, importance = TRUE)
+model2
+```
+
+We will now predict on the train dataset first and then predict on validation dataset.
+```{r}
+# Predicting on train set
+predTrain <- predict(model1, TrainSet, type = "class")
+# Predicting on Validation set
+predValid <- predict(model1, ValidSet, type = "class")
+# Checking classification accuracy
+mean(predValid == ValidSet$y16hidpt)                    
+```
+
+In case of prediction on train dataset, there is zero misclassification; however, in the case of validation dataset, 6 data points are misclassified and accuracy is 98.84%. We can also use function to check important variables. The below functions show the drop in mean accuracy for each of the variables.
+```{r}
+# To check important variables
+importance(model2)        
+varImpPlot(model2)    
+```
+
+Now, we will use ‘for’ loop and check for different values of mtry.
+```{r}
+# Using For loop to identify the right mtry for model
+a=c()
+i=5
+for (i in 3:8) {
+  model3 <- randomForest(y16hidpt_q ~ ., data = TrainSet, ntree = 500, mtry = i, importance = TRUE)
+  predValid <- predict(model3, ValidSet, type = "class")
+  a[i-2] = mean(predValid == ValidSet$y16hidpt_q)
+}
+a
+plot(3:8,a)
+```
+

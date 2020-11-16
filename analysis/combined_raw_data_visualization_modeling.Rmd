@@ -1,0 +1,417 @@
+---
+title: "Combined_data_visualization_modeling"
+author: "Yiming Qian"
+date: "6/28/2020"
+output: html_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Fig/',
+                      echo=TRUE, warning=FALSE, message=FALSE)
+library(ggplot2)  #for plotting
+library(MASS)     #for random generator function
+library(psych)    #for general functions
+library(nlme)      #for model fitting
+library(reshape)   #for data management
+library(dplyr)
+library(plot3D)
+library(plyr)
+library(tidyverse)
+library(GGally)
+library(broom)
+library(car)
+library(lavaan)
+```
+Step 1: combine the puberty data and cognitive tests data
+```{r join}
+raw_cogni_long$id <- as.integer(raw_cogni_long$id)
+names(raw_cogni_long)[names(raw_cogni_long) == "age"] <- "age_cog"
+names(raw_PDS_long)[names(raw_PDS_long) == "age"] <- "age_pds"
+a_long <- full_join(raw_PDS_long[-c(6:12)],raw_cogni_long[,-c(1,5)],by=c("id","occasion"))
+subset(a_long,round(age_pds,6)!=round(age_cog,6))
+a_long$sex<-factor(a_long$sex, levels=c(0,1),labels=c("Girls","Boys"))
+a_long$occasion<-factor(a_long$occasion)
+
+raw_PDS_final<- raw_PDS_long[,-c(5:12)] %>%
+  pivot_wider(names_from = occasion,values_from = pds)
+names(raw_PDS_final)[names(raw_PDS_final) == "y9"] <- "y9pds"
+names(raw_PDS_final)[names(raw_PDS_final) == "y10"] <- "y10pds"
+names(raw_PDS_final)[names(raw_PDS_final) == "y11"] <- "y11pds"
+names(raw_PDS_final)[names(raw_PDS_final) == "y12"] <- "y12pds"
+names(raw_PDS_final)[names(raw_PDS_final) == "y13"] <- "y13pds"
+names(raw_PDS_final)[names(raw_PDS_final) == "y14"] <- "y14pds"
+names(raw_PDS_final)[names(raw_PDS_final) == "y15"] <- "y15pds"
+a <- full_join(raw_PDS_final,raw_cogni[,-c(1,4)],by=c("id"))
+a$sex<-factor(a$sex, levels=c(0,1),labels=c("Girls","Boys"))
+```
+
+Step 2: check the correlation between puberty and spatial ability by year and sex
+```{r}
+ggpairs(a_long[,6:7],mapping=ggplot2::aes(color=factor(a_long$sex)))+theme_classic()
+
+test_long<-a_long %>% 
+  filter(occasion %in% c("y9","y10","y12","y14"))
+
+tgc1 <- Rmisc::summarySE(test_long, measurevar="hidpt", groupvars=c("pds","sex"), na.rm=TRUE)
+tgc1 %>% ggplot(aes(x=pds, y=hidpt, colour=sex)) + 
+    geom_errorbar(aes(ymin=hidpt-se, ymax=hidpt+se), width=.1) +
+    geom_line() +
+    geom_point()+
+  #  geom_ribbon(aes(ymin=hidpt-se, ymax=hidpt+se))+
+  labs(x="Puberty Stages", y="Hidden Pattern")+  #theme with white background
+  theme_classic() 
+
+test_long %>% ggplot(aes(x=pds, y=hidpt, group=sex, color=sex)) + 
+  geom_point(alpha=0.3) +
+  facet_grid(.~occasion) +
+  geom_smooth() +
+  labs(x="Puberty Stages", y="Hidden pattern")+
+  #theme with white background
+  theme_classic() 
+
+tgc1 <- Rmisc::summarySE(test_long, measurevar="hidpt", groupvars=c("pds","sex","occasion"), na.rm=TRUE)
+tgc1 %>% ggplot(aes(x=pds, y=hidpt, colour=sex)) + 
+    geom_errorbar(aes(ymin=hidpt-se, ymax=hidpt+se), width=.1) +
+    geom_line() +
+    geom_point()+
+  facet_grid(.~occasion) +
+  labs(x="Puberty Stages", y="Hidden Pattern")+  #theme with white background
+  theme_classic() 
+```
+```{r}
+ggpairs(a_long[,c(6,8)],mapping=ggplot2::aes(color=factor(a_long$sex)))+theme_classic()
+
+tgc1 <- Rmisc::summarySE(test_long, measurevar="crott", groupvars=c("pds","sex"), na.rm=TRUE)
+tgc1 %>% ggplot(aes(x=pds, y=crott, colour=sex)) + 
+    geom_errorbar(aes(ymin=crott-se, ymax=crott+se), width=.1) +
+    geom_line() +
+    geom_point()+
+  labs(x="Puberty Stages", y="crott")+  #theme with white background
+  theme_classic() 
+
+test_long %>% ggplot(aes(x=pds, y=crott, group=sex, color=sex)) + 
+  geom_point(alpha=0.3) +
+  facet_grid(.~occasion) +
+  geom_smooth() +
+  labs(x="Puberty Stages", y="Crott")+
+  #theme with white background
+  theme_classic() 
+```
+```{r 3D-plot}
+# # scatter plot
+# library(plot3D)
+# x<-subset(a_long, id<=1500)$age_cog
+# y<-subset(a_long, id<=1500)$pds
+# z<-subset(a_long, id<=1500)$hidpt
+# scatter3D(x,y,z,phi=0, bty="g", type="b", ticktype="detailed", pch =20,  xlab="age",ylab="pds", zlab="Hidden Pattern", xlim(9,18),ylim(1,4),clab=c("hidden pattern","score"))
+
+library(car)
+if(interactive() && require(rgl) && require(mgcv)){
+    scatter3d(hidpt ~ age_cog + pds, data=a_long, id=list(n=3))
+    Sys.sleep(5) # wait 5 seconds
+    scatter3d(hidpt ~ age_cog + pds | sex, data=a_long)
+    Sys.sleep(5)
+    scatter3d(hidpt ~ age_cog + pds | sex, surface=FALSE,
+    	ellipsoid=TRUE, revolutions=3, data=a_long)
+    Sys.sleep(5)
+}
+# group by sex
+scatter3d(a_long$age_cog,a_long$pds,a_long$hidpt, group=a_long$sex,  surface=FALSE,
+    	ellipsoid=TRUE,  xlab="age",ylab="pds", zlab="Hidden Pattern")
+# group by quantile of hidpt at age 9 
+scatter3d(a_long$age_cog,a_long$pds,a_long$hidpt, group=a_long$q_hidpt, grid=FALSE, xlab="age",ylab="pds", zlab="Hidden Pattern")
+# male
+a_long.m<-a_long %>% filter(sex==1)
+scatter3d(a_long.m$age_cog,a_long.m$pds,a_long.m$hidpt, group=a_long.m$q_hidpt, surface=FALSE,
+    	ellipsoid=TRUE, xlab="age",ylab="pds", zlab="Hidden Pattern")
+# group by occasion
+test_long$occasion<-factor(test_long$occasion)
+scatter3d(test_long$age_cog,test_long$pds,test_long$hidpt, group=test_long$occasion, surface=FALSE,
+    	ellipsoid=TRUE, xlab="age",ylab="pds", zlab="Hidden Pattern")
+
+# library(plotly)
+# # it does not work, because points are connected according to `x`(?) not id
+# plot_ly(subset(a_long, id<=1500), x = ~age_cog, y = ~pds, z = ~hidpt, type = 'scatter3d', mode = 'lines',
+#         opacity = 1, line = list(width = 6, color = ~id, reverscale = FALSE))
+
+```
+# Step 3: Model Building, Estimation, and Assessment of Fit to Data
+The puberty development follow the logistic regression (see Beltz, Corley, Bricker , Wadsworth, & Berenbaum, 2014, which use the dataset from the same project). However, the repeated measures of spatial ability scores were standardized by gender and age. It provides challenges to investigate the association between the trajectory of puberty development and trajectory of spatial ability development.
+
+The question of interest was whether change in puberty (linear, quadratic change, or logistic change) was associated with a similar pattern of change in cognitive ability. (that is, whether change in puberty status relative to average group change is related to cognitive ability relative to the group?)
+
+(a) I have tried dyadic APIM:
+```{r}
+a_melt <- a[,c("id","sex", "y9pds","y10pds","y12pds","y14pds","y9hidpt","y10hidpt","y12hidpt","y14hidpt")] %>%
+  pivot_longer(cols=c("y9pds","y10pds","y12pds","y14pds","y9hidpt","y10hidpt","y12hidpt","y14hidpt"), 
+               names_to=c("age","value"), 
+               names_pattern = "(y[0-9]{1,2})(\\w{3,5})",
+               values_to="key",
+               names_ptype=list(
+                 age=factor(
+                   levels=c("y9", "y10","y12", "y14"),
+                   ordered=TRUE))) 
+
+a_melt$age_baseline[a_melt$age == "y9"] <- 0
+a_melt$age_baseline[a_melt$age == "y10"] <- 1
+a_melt$age_baseline[a_melt$age == "y12"] <- 3
+a_melt$age_baseline[a_melt$age == "y14"] <- 5
+a_melt$puberty_on <- ifelse(a_melt$value == "pds", 1, 0)
+a_melt$hidpt_on <- ifelse(a_melt$value == "hidpt", 1, 0)
+a_melt$key<-as.numeric(a_melt$key)
+#  a_melt$key[a_melt$key=="NaN"] <- NA
+apim_full <- lme(fixed= key ~  -1 +              #turns OFF intercept 
+                                 puberty_on +           #pds intercept
+                                 puberty_on:age_baseline +
+                                 hidpt_on +        # spatial ability intercept
+                                 hidpt_on:age_baseline,
+                random = ~ -1 +puberty_on + hidpt_on| id, 
+               weights=varIdent(form = ~1 | puberty_on), # this invokes separate sigma^{2}_{e} for each gender
+                  corr=corAR1(form = ~1 | id/sex/age_baseline), 
+               data = a_melt,
+               control=list(maxIter=10000),
+               na.action = na.exclude)
+
+summary(apim_full)
+# not significant
+```
+
+PDS as effect on verbal and spatial ability
+```{r}
+a_melt1 <- a[,c("id","sex", "y9pds","y10pds","y12pds","y14pds","y9hidpt","y10hidpt","y12hidpt","y14hidpt","y9crott","y10crott","y12crott","y14crott")] %>%
+   pivot_longer(cols=y9pds:y14crott, 
+               names_to=c("age","value"), 
+               names_pattern = "(y[0-9]{1,2})(\\w{3,5})",
+               values_to="key",
+               names_ptype=list(
+                 age=factor(
+                   levels=c("y9", "y10","y12", "y14"),
+                   ordered=TRUE)))
+
+  
+  pivot_longer(cols=c("y9crott","y10crott","y12crott","y14crott","y9hidpt","y10hidpt","y12hidpt","y14hidpt"), 
+               names_to=c("age","value"), 
+               names_pattern = "(y[0-9]{1,2})(\\w{3,5})",
+               values_to="key",
+               names_ptype=list(
+                 age=factor(
+                   levels=c("y9", "y10","y12", "y14"),
+                   ordered=TRUE))) %>%
+ 
+a_melt1$crott_on <- ifelse(a_melt1$value == "crott", 1, 0)
+a_melt1$hidpt_on <- ifelse(a_melt1$value == "hidpt", 1, 0)
+a_melt$key<-as.numeric(a_melt$key)
+#  a_melt$key[a_melt$key=="NaN"] <- NA
+apim_full1 <- lme(fixed= key ~  -1 +              #turns OFF intercept 
+                                 crott_on +           #pds intercept
+                                 crott_on:pdss +
+                                 hidpt_on +        # spatial ability intercept
+                                 hidpt_on:pdss,
+                random = ~ -1 +crott_on + hidpt_on| id, 
+               weights=varIdent(form = ~1 | crott_on), # this invokes separate sigma^{2}_{e} for each gender
+                  corr=corAR1(form = ~1 | id/sex/pdss), 
+               data = a_melt1,
+               control=list(maxIter=10000),
+               na.action = na.exclude)
+
+summary(apim_full1)
+# not significant
+```
+
+(b) SEM to check the correlation of linear slope and quandratic slope
+
+linear model
+```{r}
+library(lavaan)
+Model1<-'L1=~1*y9pds+1*y10pds+1*y11pds+1*y12pds+1*y13pds+1*y14pds+1*y15pds
+S1=~0*y9pds+1*y10pds+2*y11pds+3*y12pds+4*y13pds+5*y14pds+6*y15pds
+L2=~1*y9hidpt+1*y10hidpt+1*y12hidpt+1*y14hidpt+1*y16hidpt
+S2=~0*y9hidpt+1*y10hidpt+2*y12hidpt+3*y14hidpt+4*y16hidpt
+L1~~S1
+L2~~0*S2
+L1~~0*L2
+S1~~S2    # completely correlated
+L2~~S1
+L1~~0*S2
+y9pds~0*1
+y10pds~0*1
+y11pds~0*1
+y12pds~0*1
+y13pds~0*1
+y14pds~0*1
+y15pds~0*1
+y9hidpt~0*1
+y10hidpt~0*1
+y12hidpt~0*1
+y14hidpt~0*1
+y16hidpt~0*1
+L1~1
+L2~1
+S1~1
+S2~1'
+cfa.bi1<-cfa(Model1, data=a,meanstructure=T)
+summary(cfa.bi1,fit.measures=T)
+# all the variable is close to 1, so you can consider to set them as the same
+inspect(cfa.bi1,'est')
+MI<-modificationIndex(mi>5)
+MI
+```
+```{r}
+Model2.1<-'L=~1*y9hidpt+1*y10hidpt+1*y12hidpt+1*y14hidpt+1*y16hidpt
+S=~-2*y9hidpt+-1*y10hidpt+0*y12hidpt+1*y14hidpt+2*y16hidpt
+y10hidpt~y9hidpt
+y12hidpt~y10hidpt
+y14hidpt~y12hidpt
+y16hidpt~y14hidpt'
+cfa2.1<-cfa(Model2.1,data=a)
+summary(cfa2.1,fit.measures=T)
+Model2.2<-'L=~1*y9hidpt+1*y10hidpt+1*y12hidpt+1*y14hidpt+1*y16hidpt
+S=~-2*y9hidpt+-1*y10hidpt+0*y12hidpt+1*y14hidpt+2*y16hidpt
+Q=~4*y9hidpt+1*y10hidpt+0*y12hidpt+1*y14hidpt+4*y16hidpt
+y10hidpt~0*y9hidpt
+y12hidpt~0*y10hidpt
+y14hidpt~y12hidpt
+y16hidpt~y14hidpt'
+cfa2.2<-cfa(Model2.2,data=a)
+summary(cfa2.2,fit.measures=T)  # better
+anova(cfa2.1,cfa2.2)
+
+Model3.1<-'L=~1*y9pds+1*y10pds+1*y11pds+1*y12pds+1*y13pds+1*y14pds+1*y15pds
+S=~-3*y9pds+-2*y10pds+-1*y11pds+0*y12pds+1*y13pds+2*y14pds+3*y15pds
+y10pds~y9pds
+y11pds~y10pds
+y12pds~y11pds
+y13pds~y12pds
+y14pds~y13pds
+y15pds~0*y14pds'
+cfa3.1<-cfa(Model3.1,data=a)
+summary(cfa3.1,fit.measures=T)
+Model3.2<-'L=~1*y9pds+1*y10pds+1*y11pds+1*y12pds+1*y13pds+1*y14pds+1*y15pds
+S=~-3*y9pds+-2*y10pds+-1*y11pds+0*y12pds+1*y13pds+2*y14pds+3*y15pds
+Q=~9*y9pds+4*y10pds+1*y11pds+0*y12pds+1*y13pds+4*y14pds+9*y15pds
+y10pds~0*y9pds
+y11pds~y10pds
+y12pds~y11pds
+y13pds~y12pds
+y14pds~y13pds
+y15pds~0*y14pds'
+cfa3.2<-cfa(Model3.2,data=a)
+summary(cfa3.2,fit.measures=T)
+anova(cfa3.1,cfa3.2)  # better
+```
+
+```{r}
+# Bivariate standard ALT with covariable
+Model4<-'S11=~1*y9pds
+S21=~1*y10pds
+S31=~1*y11pds
+S41=~1*y12pds
+S51=~1*y13pds
+S61=~1*y14pds
+S71=~1*y15pds
+S12=~1*y9hidpt
+S22=~1*y10hidpt
+S32=~1*y12hidpt
+S42=~1*y14hidpt
+S52=~1*y16hidpt
+L1=~1*S11+1*S21+1*S31+1*S41+1*S51+1*S61+1*S71
+S1=~-3*S11+-2*S21+-1*S31+0*S41+1*S51+2*S61+3*S71
+Q1=~9*S11+4*S21+1*S31+0*S41+1*S51+4*S61+9*S71
+L2=~1*S12+1*S22+1*S32+1*S42+1*S52
+S2=~-2*S12+-1*S22+0*S32+1*S42+2*S52
+Q2=~4*S12+1*S22+0*S32+1*S42+3*S52
+S21~0*S11
+S31~S21
+S41~S31
+S51~S41
+S61~S51
+S71~S61
+S22~S12
+S32~S22
+S42~S32
+S52~S42
+L1~~L2
+L1~~S2
+L1~~Q2
+S1~~S2
+S1~~Q1
+L2~~S1
+L2~~Q1
+S2~~Q1
+Q1~~Q2
+y9pds~0*1
+y10pds~0*1
+y11pds~0*1
+y12pds~0*1
+y13pds~0*1
+y14pds~0*1
+y15pds~0*1
+y9hidpt~0*1
+y10hidpt~0*1
+y12hidpt~0*1
+y14hidpt~0*1
+y16hidpt~0*1
+L1~1
+S1~1
+Q1~1
+S11~1
+S12~1
+S11~~S12
+S71~~0*S52'
+cfa4<-cfa(Model4, data=a)
+summary(cfa4, fit.measures=T)
+```
+
+(c) growth model
+
+Run univariate model with a time-varying covariate in multilevel framework
+The time-varying covariate is called “spring”.
+```{r}
+hidpt.tvc.nlme<-nlme(hidpt~(beta_1+d_1i)+(beta_2+d_2i)*age_cog+b3*pds,
+                      data      = a_long,
+                      fixed     = beta_1+beta_2+b3~1,
+                      random    = d_1i+d_2i~1,
+                      group     = ~id,
+                      start     = c(35, 4, 0.1),
+                      na.action = na.omit,
+                      control = lmeControl(maxIter = 1000))
+
+summary(hidpt.tvc.nlme)
+```
+Jenss-Bayley Growth Model.
+```{r}
+hidpt.jb.nlme <- nlme(hidpt~b_1i + b_2i * pds + b_3i * (exp(gamma*pds)-1),
+                      data = a_long,
+                      fixed = b_1i + b_2i + b_3i + gamma ~ 1,
+                      random = b_1i + b_2i + b_3i ~ 1,
+                      groups =~ id,
+                      start = c(50, 10, 30, -2),
+                      na.action = na.exclude)
+summary(hidpt.jb.nlme)
+```
+
+```{r}
+cdlogistic.y15<-nlme(hidpt ~ -8 + 188*(1/(1+exp((gamma_00 + gamma_01*pds + u_0i)*((gamma_10 + gamma_11*pds + u_1i)-age_cog)))),
+                    fixed = gamma_00 + gamma_01 + gamma_10 + gamma_11 ~ 1,
+                    random = u_0i + u_1i  ~ 1,
+                    group = ~ id,
+                    start = c(gamma_00= 0.5, gamma_01 = 0.1, gamma_10 = 14, gamma_11=0.1),  #important to get these in the ballpark
+                    data = a_long,
+                    na.action = "na.exclude",
+                    control = lmeControl(maxIter = 200))
+
+summary(cdlogistic.y15)
+VarCorr(cdlogistic.y15)
+```
+
+Bilinear Spline Growth Model.
+```{r}
+hidpt.spline.nlme <- nlme(hidpt ~ b_1i + b_2i*(pmin(0,pds-gamma)) + b_3i*(pmax(0,pds-gamma)),
+                      data = a_long,
+                      fixed = b_1i + b_2i + b_3i + gamma ~ 1,
+                      random = b_1i + b_2i + b_3i ~ 1,
+                      groups =~ id,
+                      start = c(60, 5, 2, 2.5),
+                      na.action = na.omit)
+summary(hidpt.spline.nlme) 
+```

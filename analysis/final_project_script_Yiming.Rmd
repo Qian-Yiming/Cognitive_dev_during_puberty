@@ -1,0 +1,284 @@
+---
+title: "challenge_note"
+author: "yiming"
+date: "April 16, 2020"
+output: html_document
+---
+
+---
+title: "survivalModel"
+author: "Yiming Qian"
+date: "April 15, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      echo=TRUE, warning=FALSE, message=FALSE)
+library(ggplot2)   #for plotting
+library(nlme)      #for model fitting
+library(psych)     #for general functions
+library(reshape)   #for data management
+library(dplyr)
+library(tidyverse)
+library(survival)
+library(GGally)
+```
+
+# Step 1: Read the data
+# prepare the data
+```{r}
+#set filepath for data file
+setwd("C:/Users/yimin/Box Sync/course/HDFS523/final_project")
+
+df_wide <- read.csv("C:/Users/yimin/Box Sync/course/HDFS523/Assignment/Assignment6/df_wide.csv", header=TRUE)
+# all.equal(df_wide$y9age/12,df_wide$age9)
+# df_wide$y9age/12 == df_wide$age9
+# all.equal(df_wide$y10age/12,df_wide$age10)
+# df_wide$y10age/12 == df_wide$age10
+# all.equal(df_wide$y12age,df_wide$age12)
+# all.equal(df_wide$y14age,df_wide$age14)
+#Creating a list of variables of interest, only get the pds scores and spatial ability scores which were measured at the same occasions
+varnames <- c("project","sex","racecat","hispanic","id","y7space","y9space","y10space","y12space","y14space","y16space","y7verbal","y9verbal","y10verbal","y12verbal","y14verbal","y16verbal","pdss9","pdss10","pdss11","pdss12","pdss13","pdss14","pdss15","time_log_excl")
+
+#sub-setting the columns of interest
+a <- df_wide[ ,varnames]
+a$sex<-factor(a$sex)
+a$racecat<-factor(a$racecat)
+a<- a %>% plyr::rename(c("pdss9"="y9pds","pdss10"="y10pds","pdss11"="y11pds","pdss12"="y12pds","pdss13"="y13pds","pdss14"="y14pds","pdss15"="y15pds"))
+str(a)
+```
+
+## get the long data
+```{r}
+a_long <- read.csv("C:/Users/yimin/Box Sync/course/HDFS523/Assignment/Assignment9/along.csv", header=TRUE)
+a_long$sex<-factor(a_long$sex)
+a_long$racecat<-factor(a_long$racecat)
+str(a_long)
+head(a_long)
+```
+
+# Step 2: Data Description/Visualization
+## check puberty data 
+```{r}
+describe(a_long$pds)
+describe(a[,c("y9pds","y10pds","y11pds","y12pds","y13pds","y14pds","y15pds")])
+
+pairs.panels(a[,c("y9pds","y10pds","y11pds","y12pds","y13pds","y14pds","y15pds")])
+
+qplot(x=factor(age), y=pds, data=a_long, geom="boxplot", ylab="puberty Status", xlab="Age")
+
+## the distribution of puberty by age
+ggplot(data=a_long, aes(x=pds)) + 
+  geom_density(aes(group=age, colour=age, fill=age), alpha=0.3) +
+  guides(colour=FALSE,
+         fill=guide_legend(title="Grade")) +
+  labs(x="Puberty Stages", y="Density")+
+  ggtitle("Puberty Stages by Grades") +
+  #theme with white background
+  theme_classic() + 
+  #increase font size of axis and point labels
+  theme(axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.2)),
+        legend.position = "right")
+
+## the distribution of puberty by age and sex
+ggplot(data=a_long, aes(x=pds)) + 
+  geom_density(aes(group=age, colour=age, fill=age), alpha=0.3) +
+  guides(colour=FALSE,
+         fill=guide_legend(title="Grade")) +
+  labs(x="Puberty Stages", y="Density")+
+  ggtitle("Puberty Stages by Grades") +
+  #theme with white background
+  theme_classic() + 
+  facet_grid(.~sex)
+  #increase font size of axis and point labels
+  theme(axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.2)),
+        legend.position = "right")
+```
+## check spatial data 
+```{r}
+describe(a_long$spatial) 
+
+describeBy(a_long$spatial,a_long$sex) 
+describeBy(a[,6:11], a$sex)
+## the mean and sd of y16space are significantly different from the others
+# the mean spatial ability scores for males are 0.71, sd is 1.11
+
+# Correlations plot
+pairs.panels(a[,c("y7space","y9space","y10space","y12space","y14space","y16space")])
+
+## the distribution of puberty by age and sex
+ggplot(data=a_long, aes(x=spatial)) + 
+  geom_density(aes(group=age, colour=age, fill=age), alpha=0.3) +
+  guides(colour=FALSE,
+         fill=guide_legend(title="Age")) +
+  labs(x="Spatial Ability", y="Density")+
+  ggtitle("Spatial Ability by Age") +
+  #theme with white background
+  theme_classic() + 
+  facet_grid(.~sex)
+  #increase font size of axis and point labels
+  theme(axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.2)),
+        legend.position = "right")
+```
+## check verbal data 
+```{r}
+describe(a_long$verbal) 
+
+describeBy(a_long$verbal,a_long$sex) 
+describeBy(a[,12:17], a$sex)
+```
+## check the correlation between puberty and spatial ability by year and sex
+```{r}
+# check correlation of puberty status and spatial ability scores
+# ggpairs(a[,6:18],mapping=ggplot2::aes(color=a$sex))+theme_classic()
+ggpairs(a_long[,7:8],mapping=ggplot2::aes(color=a_long$sex))+theme_classic()
+
+tgc1 <- Rmisc::summarySE(a_long, measurevar="spatial", groupvars=c("pds","sex"), na.rm=TRUE)
+tgc1 %>% ggplot(aes(x=pds, y=spatial, colour=sex)) + 
+    geom_errorbar(aes(ymin=spatial-se, ymax=spatial+se), width=.1) +
+    geom_line() +
+    geom_point()+
+  labs(x="Puberty Stages", y="Spatial ability")+  #theme with white background
+  theme_classic() 
+
+a_long %>% ggplot(aes(x=pds, y=spatial, group=sex, color=sex)) + 
+  geom_point(alpha=0.3) +
+  facet_grid(.~age) +
+  geom_smooth() +
+  labs(x="Puberty Stages", y="Spatial ability")+
+  #theme with white background
+  theme_classic() 
+
+tgc <- Rmisc::summarySE(a_long, measurevar="spatial", groupvars=c("pds","sex","age"), na.rm=TRUE)
+tgc %>% ggplot(aes(x=pds, y=spatial, colour=sex)) + 
+    geom_errorbar(aes(ymin=spatial-se, ymax=spatial+se), width=.1) +
+    geom_line() +
+    geom_point()+
+  facet_grid(.~age) +
+  labs(x="Puberty Stages", y="Spatial ability")+  #theme with white background
+  theme_classic() 
+```
+
+# Step 3: Model Building, Estimation, and Assessment of Fit to Data
+The puberty development follow the logistic regression (see Beltz, Corley, Bricker , Wadsworth, & Berenbaum, 2014, which use the dataset from the same project). However, the repeated measures of spatial ability scores were standardized by gender and age. It provides challenges to investigate the association between the trajectory of puberty development and trajectory of spatial ability development.
+
+The question of interest was whether change in puberty (linear, quadratic change, or logistic change) was associated with a similar pattern of change in cognitive ability. (that is, whether change in puberty status relative to average group change is related to cognitive ability relative to the group?)
+
+(a) I have tried dyadic APIM:
+```{r, include=FALSE}
+# for my own pc
+df_wide <- read.csv("C:/Users/yimin/Box Sync/course/HDFS523/Assignment/Assignment6/df_wide.csv", header=TRUE)
+#Creating a list of variables of interest, only get the pds scores and spatial ability scores which were measured at the same occasions
+varnames <- c("project","sex","racecat","hispanic","id","y9space","y10space","y12space","y14space","pdss9","pdss10","pdss12","pdss14","time_log_excl")
+#sub-setting the columns of interest
+a <- df_wide[ ,varnames]
+a$sex<-factor(a$sex)
+a$racecat<-factor(a$racecat)
+a<- a %>% rename(y9pds=pdss9,y10pds=pdss10,y12pds=pdss12,y14pds=pdss14)
+a_long <- a %>% 
+  pivot_longer(cols=y9space:y14pds, 
+               names_to=c("age","group"), 
+               names_pattern = "(y[0-9]{1,2})(\\w)",
+               values_to="key",
+               names_ptype=list(
+                 age=factor(
+                   levels=c("y9", "y10","y12", "y14"),
+                   ordered=TRUE))) %>%
+  pivot_wider(names_from = group, 
+              values_from = key) %>% 
+  rename(pds=p) %>%
+  rename(space=s) 
+a_long$age<-factor(a_long$age,levels=c( "y9", "y10","y12", "y14"),labels=c( "9", "10","12", "14"),ordered=TRUE)
+a_long$age<-as.numeric(a_long$age)
+```
+
+```{r}
+#correlations
+pairs.panels(a[, 6:13])
+```
+```{r, include=FALSE}
+# get the melt data
+a_melt <- a %>% 
+  pivot_longer(cols=y9space:y14pds, 
+               names_to=c("age","value"), 
+               names_pattern = "(y[0-9]{1,2})(\\w)",
+               values_to="key",
+               names_ptype=list(
+                 age=factor(
+                   levels=c("y9", "y10","y12", "y14"),
+                   ordered=TRUE))) 
+a_melt$age_baseline<-as.numeric(a_melt$age)
+a_melt$age_baseline[a_melt$age_baseline == 1] <- 0
+a_melt$age_baseline[a_melt$age_baseline == 2] <- 1
+a_melt$age_baseline[a_melt$age_baseline == 4] <- 5
+a_melt$value<-factor(a_melt$value,levels=c( "s", "p"),labels=c( "spatial", "puberty"),ordered=TRUE)
+str(a_melt)
+
+#re-order for convenience
+a_melt <- a_melt[order(a_melt$id, a_melt$value), ]
+```
+```{r}
+a_melt$puberty_on <- ifelse(a_melt$value == "puberty", 1, 0)
+a_melt$spatial_on <- ifelse(a_melt$value == "spatial", 1, 0)
+
+head(a_melt)
+```
+
+```{r}
+apim_full <- lme(fixed= key ~  -1 +              #turns OFF intercept 
+                                 puberty_on +           #pds intercept
+                                 puberty_on:age_baseline +
+                                 spatial_on +        # spatial ability intercept
+                                 spatial_on:age_baseline,
+                random = ~ -1 +puberty_on + spatial_on| id, 
+               weights=varIdent(form = ~1 | puberty_on), # this invokes separate sigma^{2}_{e} for each gender
+                  corr=corAR1(form = ~1 | id/sex/age_baseline), 
+               data = a_melt,
+               control=list(maxIter=10000),
+               na.action = na.exclude)
+
+summary(apim_full)
+# not significant
+```
+
+```{r}
+# APIM for males
+a_melt_m<-a_melt %>% filter(sex==1)
+apim_full_m <- lme(fixed= key ~  -1 +              #turns OFF intercept 
+                                 puberty_on +           #pds intercept
+                                 puberty_on:age_baseline +
+                                 spatial_on +        # spatial ability intercept
+                                 spatial_on:age_baseline,
+                random = ~ -1 +puberty_on + spatial_on| id, 
+               weights=varIdent(form = ~1 | puberty_on), # this invokes separate sigma^{2}_{e} for each gender
+                  corr=corAR1(form = ~1 | id/age_baseline), 
+               data = a_melt_m,
+               control=list(maxIter=10000),
+               na.action = na.exclude)
+
+summary(apim_full_m)
+# not significant
+```
+
+```{r}
+# APIM for females
+a_melt_f<-a_melt %>% filter(sex==0)
+apim_full_f <- lme(fixed= key ~  -1 +              #turns OFF intercept 
+                                 puberty_on +           #pds intercept
+                                 puberty_on:age_baseline +
+                                 spatial_on +        # spatial ability intercept
+                                 spatial_on:age_baseline,
+                random = ~ -1 +puberty_on + spatial_on| id, 
+               weights=varIdent(form = ~1 | puberty_on), # this invokes separate sigma^{2}_{e} for each gender
+                  corr=corAR1(form = ~1 | id/age_baseline), 
+               data = a_melt_f,
+               control=list(maxIter=10000),
+               na.action = na.exclude)
+
+summary(apim_full_f)
+# not significant
+```

@@ -1,0 +1,410 @@
+---
+title: "raw data aggregation"
+author: "yiming"
+date: "May 25, 2020"
+output: html_document
+---
+
+
+```{r, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Fig/',
+                      echo=TRUE, warning=FALSE, message=FALSE)
+library(ggplot2)  #for plotting
+library(MASS)     #for random generator function
+library(psych)    #for general functions
+library(nlme)      #for model fitting
+library(reshape)   #for data management
+library(dplyr)
+library(plyr)
+library(tidyverse)
+library(GGally)
+library(broom)
+```
+
+# raw PDS scores
+```{r get-pds}
+raw_PDS <- read.csv('/Users/yxq5055/Documents/github/Cognitive_dev_during_puberty/data/raw_PDS.csv', header=TRUE)
+str(raw_PDS)
+describe(raw_PDS)
+
+raw_PDS_long<- raw_PDS %>% 
+  pivot_longer(cols=age9:menses15, 
+               names_to=c("group","occasion"), 
+               names_pattern = "([[:lower:]]{3,6})([0-9]{1,2})",
+               values_to="key",
+               names_ptype=list(
+                 occasion=factor(
+                   levels=c("9","10","11", "12","13", "14","15"),
+                   ordered=TRUE))) %>%
+  pivot_wider(names_from = group, 
+              values_from = key) 
+raw_PDS_long$occasion<-factor(raw_PDS_long$occasion, levels=c("9","10","11", "12","13", "14","15"), labels= c("y9","y10","y11", "y12","y13", "y14","y15"))
+```
+
+```{r sum-score}
+table(raw_PDS$sex)
+## women raw_PDS[,c("bodyhr9", "skin9", "growth9", "breast9", "menses9")
+## men  raw_PDS[,c("bodyhr9", "voice9", "skin9", "growth9", "faclhr9")
+raw_PDS_long$pds=rowMeans(raw_PDS_long[,c(6:12)],na.rm=TRUE)
+# raw_PDS_long[,is.na(raw_PDS_long$pds)]<-""  ??
+```
+
+```{r visualize-pds}
+qplot(x=factor(occasion), y=pds, data=raw_PDS_long, geom="boxplot", ylab="puberty Status", xlab="Age")
+
+## the distribution of puberty by age
+ggplot(data=raw_PDS_long, aes(x=pds)) + 
+  geom_density(aes(group=occasion, colour=occasion, fill=occasion), alpha=0.3) +
+  guides(colour=FALSE,
+         fill=guide_legend(title="Occasion")) +
+  labs(x="Puberty Stages", y="Density")+
+  ggtitle("Puberty Stages by Ages") +
+  #theme with white background
+  theme_classic() + 
+  #increase font size of axis and point labels
+  theme(axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.2)),
+        legend.position = "right")
+
+## the distribution of puberty by age and sex
+ggplot(data=raw_PDS_long, aes(x=pds)) + 
+  geom_density(aes(group=occasion, colour=occasion, fill=occasion), alpha=0.3) +
+  guides(colour=FALSE,
+         fill=guide_legend(title="Occasion")) +
+  labs(x="Puberty Stages", y="Density")+
+  ggtitle("Puberty Stages by Age") +
+  #theme with white background
+  theme_classic() + 
+  facet_grid(.~sex)
+  #increase font size of axis and point labels
+  theme(axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.2)),
+        legend.position = "right")
+  
+#intraindividual change trajetories
+ggplot(data = raw_PDS_long, aes(x = age, y = pds, group = id)) +
+ # geom_point(color="black") + 
+  geom_line(color="black",alpha=0.1) +
+#  geom_line(aes(x = age, y = proto.logistic), color="red",size=1) + 
+  xlab("Age") + 
+  ylab("pds") + ylim(1,4) +
+  facet_grid(.~sex) +
+  theme_classic()
+
+# get a subset
+ggplot(data = subset(raw_PDS_long, id<=1500), aes(x = age, y = pds, group = id)) +
+ # geom_point(color="black") + 
+  geom_line(color="black",alpha=0.5) +
+  geom_dotplot(color="black") +
+#  geom_line(aes(x = age, y = proto.logistic), color="red",size=1) + 
+  xlab("Age") + 
+  ylab("pds") + ylim(1,4) +
+  facet_grid(.~sex) +
+  theme_classic()
+```
+
+```{r}
+# check logistic model for females
+raw_PDS_long.f<-raw_PDS_long%>% filter(sex==0)
+pds.logistic.f <- nlme(pds ~ 1 + 3*(1/(1+exp(alpha_i*(lambda_i-age)))),
+                    fixed = alpha_i + lambda_i ~ 1,
+                    random = alpha_i + lambda_i  ~ 1,
+                    group = ~ id,
+                    start = c(alpha_i=0.6, lambda_i = 13.3),  #important to get these in the ballpark
+                      # in the literature, change rates are 0.6 for female, 0.4 for males. 
+                      # in the literature, inflection points are 13.3 for females, 15.2 for males
+                    data = raw_PDS_long.f,
+                    na.action = "na.exclude",
+                    control = lmeControl(maxIter = 500, pnlsMaxIter=20, msMaxIter=100, returnObject=TRUE),
+                    verbose=TRUE)
+
+summary(pds.logistic.f)  # AIC is 3948, BIC is 3986. It is much better than the 5-scale pds, which AIC is 8298, BIC is 8337
+VarCorr(pds.logistic.f)
+
+# check logistic model for males
+raw_PDS_long.m<-raw_PDS_long%>% filter(sex==1)
+pds.logistic.m <- nlme(pds ~ 1 + 3*(1/(1+exp(alpha_i*(lambda_i-age)))),
+                    fixed = alpha_i + lambda_i ~ 1,
+                    random = alpha_i + lambda_i  ~ 1,
+                    group = ~ id,
+                    start = c(alpha_i=0.6, lambda_i = 16),  
+                    data = raw_PDS_long.m,
+                    na.action = "na.exclude",
+             #control = nlmeControl(maxIter = 100, pnlsMaxIter = 20, returnObject = FALSE),
+             control = nlmeControl(maxIter = 500, pnlsMaxIter=20, msMaxIter=100, returnObject=TRUE),
+             verbose = TRUE)
+  
+summary(pds.logistic.m)  # AIC is 3661, BIC is 3700. It is much better than the 5-scale pds, which AIC is 9535, BIC is 9573
+intervals(pds.logistic.m)
+```
+
+
+# raw cognitive scores
+```{r get-cog}
+library(openxlsx)
+raw_cog <- read.xlsx("/Users/yxq5055/Documents/github/Cognitive_dev_during_puberty/data/raw_cognitive.xlsx",sheet=1)
+raw_cogi <- as.data.frame(apply(raw_cog[,-1], 2, as.numeric))
+raw_cogi$project<-factor(raw_cog$project)
+
+names(raw_cogi)[names(raw_cogi) == "y7vocb"] <- "y7vocab"
+names(raw_cogi)[names(raw_cogi) == "y16vocabt"] <- "y16vocab"
+# quantile cur
+raw_cogi$q_hidpt<-gtools::quantcut(raw_cogi$y9hidpt, q=4, na.rm=TRUE)
+varnames <- c("sex","id","y7agemon","y9agemon","y10agemon","y12agemon","y14agemon","y16agemon","y9hidpt","y10hidpt","y12hidpt","y14hidpt","y16hidpt", "y9crott", "y10crott",  "y12crott", "y14crott",  "y16crott","y9simil","y10simil","y12simil","y14simil","y7vocab","y9vocab","y10vocab","y12vocab","y14vocab","y16vocab","q_hidpt")
+raw_cogni<-raw_cogi[ ,varnames]
+raw_cogni$sex[raw_cogni$sex==4.666667]<-""
+raw_cogni_long<- raw_cogni %>% 
+  pivot_longer(cols=y7agemon:y16vocab, 
+               names_to=c("occasion","group"), 
+               names_pattern = "(y[0-9]{1,2})(\\w{5,6})",
+               values_to="key",
+               names_ptype=list(
+                 occasion=factor(
+                   levels=c("y7","y9","y10", "y12", "y14","y16"),
+                   ordered=TRUE))) %>%
+  pivot_wider(names_from = group, 
+              values_from = key) 
+raw_cogni_long$age<-raw_cogni_long$agemon/12
+raw_cogni$sex<-factor(raw_cogni$sex)
+remove(raw_cog)
+remove(raw_cogi)
+
+```
+
+
+```{r visualize-hidpat}
+p1<-qplot(x=factor(occasion), y=hidpt, data=raw_cogni_long, geom="boxplot", ylab="hidden pattern", xlab="Age")
+p2<-qplot(x=factor(occasion), y=crott, data=raw_cogni_long, geom="boxplot", ylab="card rotation", xlab="Age")
+p3<-qplot(x=factor(occasion), y=simil, data=raw_cogni_long, geom="boxplot", ylab="similarity", xlab="Age")
+p4<-qplot(x=factor(occasion), y=vocab, data=raw_cogni_long, geom="boxplot", ylab="vocabulary", xlab="Age")
+# ggsave("C:/Users/yimin/OneDrive/Desktop/boxplot_hidpattern.png",p1)
+# ggsave("C:/Users/yimin/OneDrive/Desktop/boxplot_cardrotation.png",p2)
+# ggsave("C:/Users/yimin/OneDrive/Desktop/boxplot_similarity.png",p3)
+# ggsave("C:/Users/yimin/OneDrive/Desktop/boxplot_vocab.png",p4)
+
+## the distribution of puberty by age
+ggplot(data=raw_cogni_long, aes(x=hidpt)) + 
+  geom_density(aes(group=occasion, colour=occasion, fill=occasion), alpha=0.3) +
+  guides(colour=FALSE,
+         fill=guide_legend(title="Occasion")) +
+  labs(x="hidden pattern", y="Density")+
+  #theme with white background
+  theme_classic() + 
+  #increase font size of axis and point labels
+  theme(axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.2)),
+        legend.position = "right")
+  
+#intraindividual change trajetories
+ggplot(data = raw_cogni_long, aes(x = agemon, y = hidpt, group = id)) +
+ # geom_point(color="black") + 
+  geom_line(color="black",alpha=0.05) +
+#  geom_line(aes(x = age, y = proto.logistic), color="red",size=1) + 
+  xlab("Age") + 
+  ylab("Hidden Pattern") + 
+  xlim(90, 250) +
+  #facet_grid(.~sex) +
+#  geom_smooth() +
+  theme_classic()
+
+# get a subset
+ggplot(data = subset(raw_cogni_long, id<=1500), aes(x = agemon, y = hidpt, group = id)) +
+ # geom_point(color="black") + 
+  geom_line(color="black",alpha=0.5) +
+#  geom_line(aes(x = age, y = proto.logistic), color="red",size=1) + 
+  xlab("Age") + 
+  ylab("Hidden Pattern") +
+  facet_grid(.~sex) +
+  theme_classic()
+```
+# Fitting the series of growth models from Ram & Grimm (2007)
+### linear
+```{r}
+cog_linear <- nlme(hidpt ~ g0 + g1*age,
+                    fixed = g0 + g1 ~ 1,
+                    random = g0 + g1 ~ 1,
+                    group = ~id,
+                    start = c(g0=20.0, g1=10.9),
+                    data = raw_cogni_long,
+                    na.action = "na.exclude",
+                    control = lmeControl(maxIter = 200))
+
+summary(cog_linear)  
+VarCorr(cog_linear)
+```
+
+### logistic model
+```{r check-logistic-model-cog}
+describe(raw_cogni_long$hidpt)
+# check logistic model for different tests
+cog.logistic.hidpt <- nlme(hidpt ~ lower_i + upper_i *(1/(1+exp(alpha_i*(lambda_i-agemon)))),
+                    fixed = alpha_i + lambda_i + lower_i + upper_i ~ 1,
+                    random = alpha_i + lambda_i + lower_i + upper_i ~ 1,
+                    group = ~ id,
+                    start = c(lower_i=0.01, upper_i=-6, alpha_i=10, lambda_i = 140),  #important to get these in the ballpark
+                    data = raw_cogni_long,
+                    na.action = "na.exclude",
+                    control = lmeControl(maxIter = 50))
+
+summary(cog.logistic.hidpt)  # AIC is 4258.36, BIC is 4296.75. 
+VarCorr(cog.logistic.hidpt)
+```
+
+### exponential growth model
+```{r check-logistic-model-cog}
+# check logistic model for different tests
+
+raw_cogni_long$time<-as.numeric(raw_cogni_long$occasion)
+raw_cogni_long$time[raw_cogni_long$time==6]<-9
+raw_cogni_long$time[raw_cogni_long$time==5]<-7
+raw_cogni_long$time[raw_cogni_long$time==4]<-5
+raw_cogni_long$time[raw_cogni_long$time==1]<-0
+
+cog_expo <- nlme(hidpt ~ g0 + g1*(exp(-1*alpha*timescaled)),
+                    fixed = g0 + g1 + alpha ~ 1,
+                    random = g0 + g1  ~ 1,
+                    group = ~id,
+                    start = c(g0=88, g1=-6, alpha=1),
+                    data = raw_cogni_long,
+                    na.action = "na.exclude")
+
+summary(cog_expo)
+VarCorr(cog_expo)
+```
+```{r}
+#obtaining predicted scores for individuals
+raw_cogni_long$pred_expo <- predict(cog_expo)
+
+#obtaining predicted scores for prototype
+raw_cogni_long$proto_expo <- predict(cog_expo, level=0)
+
+
+#plotting predicted trajectories
+#intraindividual change trajetories
+ggplot(data = raw_cogni_long, aes(x = time, y = pred_expo, group = id)) +
+  #geom_point(color="black") + 
+  geom_line(color="black") +
+  geom_line(aes(x = time, y = proto_expo), color="red",size=2) + 
+  xlab("Time") + 
+  ylab("Hidden Pattern") + ylim(0,30) +
+  scale_x_continuous(breaks=seq(0,8,by=1)) 
+```
+###  Quadratic Growth Model
+```{r}
+#creating the quadratic time variable
+raw_cogni_long$timescaled<-scale(raw_cogni_long$time-0)/9
+raw_cogni_long$timesq <- raw_cogni_long$timescaled^2
+
+#quadratic model
+# cort_quad <- lme(cort ~ 1 + timescaled + timesq,
+#                    random = ~ 1 + timescaled + timesq| id,
+#                     data = cortisol_long,
+#                     na.action = "na.exclude")
+# #does not converge
+
+# cog_quad <- lmer(hidpt ~ 1 + timescaled + timesq + (1 + timescaled + timesq | id),
+#                     data = raw_cogni_long,
+#                     na.action = "na.exclude")
+# # #does not converge
+
+cog_quad <- nlme(hidpt ~ g0 + g1*timescaled + g2*timesq,
+                    fixed = g0 + g1 + g2 ~ 1,
+                    random = g0 + g1 + g2 ~ 1,
+                    group = ~id,
+                    start = c(g0=3.6, g1=41.1, g2=-30.2),
+                    data = raw_cogni_long,
+                    na.action = "na.exclude",,
+                    control = lmeControl(maxIter = 1000))
+
+summary(cog_quad) 
+VarCorr(cort_quad)
+```
+Plotting the predicted trajectories
+```{r}
+#obtaining predicted scores for individuals
+raw_cogni_long$pred_quad <- predict(cog_quad)
+
+#obtaining predicted scores for prototype
+raw_cogni_long$proto_quad <- predict(cog_quad, level=0)
+
+
+#plotting predicted trajectories
+#intraindividual change trajetories
+ggplot(data = raw_cogni_long, aes(x = time, y = pred_quad, group = id)) +
+  #geom_point(color="black") + 
+  geom_line(color="black") +
+  geom_line(aes(x = time, y = proto_quad), color="red",size=2) + 
+  xlab("Time") + 
+  ylab("Hidden pattern") + ylim(0,30) +
+  scale_x_continuous(breaks=seq(0,8,by=1)) 
+```
+###Latent Basis Growth Model
+```{r}
+#creating time-dummy variables
+raw_cogni_long$time0 <- ifelse(raw_cogni_long$time ==0, 1, 0)
+raw_cogni_long$time2 <- ifelse(raw_cogni_long$time ==2, 1, 0)
+raw_cogni_long$time3 <- ifelse(raw_cogni_long$time ==3, 1, 0)
+raw_cogni_long$time5 <- ifelse(raw_cogni_long$time ==5, 1, 0)
+raw_cogni_long$time7 <- ifelse(raw_cogni_long$time ==7, 1, 0)
+raw_cogni_long$time9 <- ifelse(raw_cogni_long$time ==9, 1, 0)
+
+#latent basis model
+cog_latentb <- nlme(hidpt ~ time0*(g0 + g1*0) +
+                            time2*(g0 + g1*A_1) +
+                            time3*(g0 + g1*A_2) +
+                            time5*(g0 + g1*A_3) +
+                            time7*(g0 + g1*A_4) +
+                            time9*(g0 + g1*1),
+                            fixed = g0 + g1 + A_1 + A_2 + A_3 + A_4  ~ 1,
+                            random = g0 + g1 ~ 1,
+                         groups =~ id,
+                         start = c(g0=20, g1=100, 
+                                   A_1=.2, A_2=.4, A_3=.6, A_4=.8),
+                         data = raw_cogni_long,
+                         na.action = na.exclude) 
+
+summary(cog_latentb)
+```
+
+Plotting the predicted trajectories
+```{r}
+#obtaining predicted scores for individuals
+raw_cogni_long$pred_latentb <- predict(cog_latentb)
+
+#obtaining predicted scores for prototype
+raw_cogni_long$proto_latentb <- predict(cog_latentb, level=0)
+
+
+#plotting predicted trajectories
+#intraindividual change trajetories
+ggplot(data = raw_cogni_long, aes(x = time, y = pred_latentb, group = id)) +
+  #geom_point(color="black") + 
+  geom_line(color="black") +
+  geom_line(aes(x = time, y = proto_latentb), color="red",size=2) + 
+  xlab("Time") + 
+  ylab("Hidden pattern") + ylim(0,30) +
+  scale_x_continuous(breaks=seq(0,8,by=1)) 
+```
+
+### Multiphase Growth Model
+#multiphase model
+```{r}
+cog_multi <- nlme(cort ~ time0*(g0 + g1*0 + g2*0) +
+                          time1*(g0 + g1*0 + g2*0) +
+                          time2*(g0 + g1*A_2 + g2*0) +
+                          time3*(g0 + g1*A_3 + g2*0) +
+                          time4*(g0 + g1*1 + g2*0) +
+                          time5*(g0 + g1*1 + g2*A_5) +
+                          time6*(g0 + g1*1 + g2*A_6) +
+                          time7*(g0 + g1*1 + g2*A_7) +
+                          time8*(g0 + g1*1 + g2*1),
+                   fixed = g0 + g1 + g2 + A_2 + A_3 + A_5 + A_6 + A_7 ~ 1,
+                   random = g0 + g1 + g2 ~ 1,
+                   groups =~ id,
+                   start = c(g0=15, g1=10, g2=-4, 
+                             A_2=.4, A_3=.5, A_5=.7, A_6=.8, A_7=.9),
+                   data = cortisol_long,
+                   na.action = na.exclude) 
+
+summary(cog_multi)
+```
