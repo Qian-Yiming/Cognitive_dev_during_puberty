@@ -179,3 +179,20 @@ do(mod = lm(y14crott ~ y10age +  y10crott + time_log_excl, .)) %>% tidy(mod, con
 df3 %>% group_by(sex) %>%
 do(mod = lm(y14crott ~ y10age + y10crott + time_log_excl +  time_log_sq, .)) %>% tidy(mod, conf.int = TRUE)
 ```
+
+```{r}
+df3 %>% ggplot(aes(x=time_log_excl, y=y14hidpt, group=sex, color=sex)) + 
+  geom_point(alpha=0.4) +
+  geom_smooth() +
+  labs(x="Puberty timing", y="Hidden pattern at 14")+
+  #theme with white background
+  theme_classic() 
+
+df3 %>% ggplot(aes(x=time_log_excl, y=hidpt1412, group=sex, color=sex)) + 
+  geom_point(alpha=0.4) +
+ # facet_grid(.~age) +
+  geom_smooth() +
+  labs(x="Puberty timing", y="Hidden pattern at 14")+
+  #theme with white background
+  theme_classic() 
+```

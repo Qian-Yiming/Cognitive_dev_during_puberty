@@ -143,8 +143,11 @@ df1 <- df %>% mutate(
                         y16age=y16agemon/12,
                         age109=y10age-y9age,
                         age1210=y12age-y10age,
+                        age1410=y14age-y10age,
                         age1412=y14age-y12age,
                         age1614=y16age-y14age,
+                        age1612=y16age-y12age,
+                        age1610=y16age-y10age,
                         age149=y14age-y9age,
                         age169=y16age-y9age)  # 44 columns
 
